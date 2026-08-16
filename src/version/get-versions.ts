@@ -2,7 +2,7 @@
 import {from, Observable, merge, throwError, of} from 'rxjs'
 import {catchError, map} from 'rxjs/operators'
 import {Octokit} from '@octokit/rest'
-import {RestEndpointMethodTypes} from '@octokit/plugin-rest-endpoint-methods/dist-types/generated/parameters-and-response-types'
+import type {RestEndpointMethodTypes} from '@octokit/rest'
 
 export interface RestVersionInfo {
   id: number

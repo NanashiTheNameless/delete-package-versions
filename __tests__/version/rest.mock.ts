@@ -1,4 +1,4 @@
-import {RestEndpointMethodTypes} from '@octokit/plugin-rest-endpoint-methods/dist-types/generated/parameters-and-response-types'
+import type {RestEndpointMethodTypes} from '@octokit/rest'
 
 type GetVersionsResponseData =
   RestEndpointMethodTypes['packages']['getAllPackageVersionsForPackageOwnedByUser']['response']['data']

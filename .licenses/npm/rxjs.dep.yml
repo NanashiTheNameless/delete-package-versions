@@ -1,9 +1,9 @@
 ---
 name: rxjs
-version: 7.8.1
+version: 7.8.2
 type: npm
-summary: Reactive Extensions for modern JavaScript
-homepage: https://rxjs.dev
+summary: 
+homepage: 
 license: apache-2.0
 licenses:
 - sources: LICENSE.txt
