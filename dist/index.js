@@ -167,13 +167,27 @@ exports.Input = Input;
 
 "use strict";
 
+/* eslint-disable i18n-text/no-en */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.deletePackageVersion = deletePackageVersion;
 exports.deletePackageVersions = deletePackageVersions;
 const rxjs_1 = __nccwpck_require__(34863);
 const operators_1 = __nccwpck_require__(51245);
 const rest_1 = __nccwpck_require__(65772);
-let deleted = 0;
+// Builds an error description that always carries the HTTP status and request id,
+// since some registry failures come back with an empty body and no message.
+function describeApiError(err) {
+    const detail = err.errors && err.errors.length > 0 && err.errors[0].message
+        ? err.errors[0].message
+        : err.message || '(empty response body)';
+    const parts = [detail];
+    if (err.status)
+        parts.push(`status: ${err.status}`);
+    const requestId = err.response?.headers?.['x-github-request-id'];
+    if (requestId)
+        parts.push(`request id: ${requestId}`);
+    return parts.join(', ');
+}
 function deletePackageVersion(packageVersionId, owner, packageName, packageType, token) {
     const octokit = new rest_1.Octokit({
         auth: token,
@@ -181,30 +195,54 @@ function deletePackageVersion(packageVersionId, owner, packageName, packageType,
     });
     const package_version_id = +packageVersionId;
     const package_type = packageType;
-    deleted += 1;
     return (0, rxjs_1.from)(octokit.rest.packages.deletePackageVersionForUser({
         package_type,
         package_name: packageName,
         username: owner,
         package_version_id
-    })).pipe((0, operators_1.catchError)(err => {
-        const msg = 'delete version API failed.';
-        return (0, rxjs_1.throwError)(err.errors && err.errors.length > 0
-            ? `${msg} ${err.errors[0].message}`
-            : `${msg} ${err.message} \n${deleted - 1} versions deleted till now.`);
-    }), (0, operators_1.map)(response => response.status === 204));
+    })).pipe((0, operators_1.map)(response => response.status === 204), (0, operators_1.catchError)((err) => {
+        // A version can disappear between listing and deleting, e.g. when deleting
+        // a multi-arch image index also removes the manifests it references.
+        if (err.status === 404) {
+            console.log(`version with id: ${packageVersionId} not found, it may already be deleted (${describeApiError(err)})`);
+            return (0, rxjs_1.of)(false);
+        }
+        return (0, rxjs_1.throwError)(`delete version API failed. Version id ${packageVersionId}: ${describeApiError(err)}`);
+    }));
 }
 function deletePackageVersions(packageVersionIds, owner, packageName, packageType, token) {
     if (packageVersionIds.length === 0) {
         return (0, rxjs_1.of)(true);
     }
-    const deletes = packageVersionIds.map(id => deletePackageVersion(id, owner, packageName, packageType, token).pipe((0, operators_1.tap)(result => {
-        if (!result) {
+    let deleted = 0;
+    let notDeleted = 0;
+    const failures = [];
+    // Delete one version at a time so related versions (an image index and its
+    // platform manifests) are never removed concurrently, and keep going after a
+    // failure so one bad version does not block the rest.
+    const deletes = (0, rxjs_1.from)(packageVersionIds).pipe((0, operators_1.concatMap)(id => deletePackageVersion(id, owner, packageName, packageType, token).pipe((0, operators_1.tap)(result => {
+        if (result) {
+            deleted += 1;
+        }
+        else {
+            notDeleted += 1;
             console.log(`version with id: ${id}, not deleted`);
         }
-    })));
-    console.log(`Total versions deleted till now: ${deleted}`);
-    return (0, rxjs_1.merge)(...deletes);
+    }), (0, operators_1.catchError)(err => {
+        failures.push(String(err));
+        return rxjs_1.EMPTY;
+    }))));
+    const summary = (0, rxjs_1.defer)(() => {
+        console.log(`Deleted ${deleted} of ${packageVersionIds.length} versions (${notDeleted} not found, ${failures.length} failed).`);
+        if (failures.length > 0) {
+            return (0, rxjs_1.throwError)(`${failures.join('\n')}\n${deleted} of ${packageVersionIds.length} versions deleted.`);
+        }
+        if (deleted === 0) {
+            return (0, rxjs_1.throwError)(`None of the ${packageVersionIds.length} versions could be found. Check the package name, owner and token permissions.`);
+        }
+        return rxjs_1.EMPTY;
+    });
+    return (0, rxjs_1.concat)(deletes, summary);
 }
 
 
